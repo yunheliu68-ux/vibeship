@@ -176,5 +176,8 @@ func (s *Store) RecentEvents(since time.Duration) ([]TranscriptEvent, error) {
 		e.Timestamp, _ = time.Parse(time.RFC3339, ts)
 		events = append(events, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return events, nil
 }
