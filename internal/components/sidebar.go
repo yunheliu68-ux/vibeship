@@ -12,11 +12,18 @@ import (
 )
 
 func RenderSidebar(reg *config.Registry, events []store.TranscriptEvent, colors theme.Colors, w, h int) string {
+	// Guard against panics on very small terminals
+	if w < 20 || h < 10 {
+		return "Terminal too small"
+	}
+
+	safeW := max(0, w-4)
+
 	var lines []string
 
 	// Skills section
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(colors.Primary).Render("🧩 Skills"))
-	lines = append(lines, strings.Repeat("─", w-4))
+	lines = append(lines, strings.Repeat("─", safeW))
 
 	currentCategory := ""
 	for _, sk := range reg.Skills {
@@ -34,7 +41,7 @@ func RenderSidebar(reg *config.Registry, events []store.TranscriptEvent, colors 
 	// Plugins section
 	lines = append(lines, "")
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(colors.Primary).Render("🔌 Plugins (enabled)"))
-	lines = append(lines, strings.Repeat("─", w-4))
+	lines = append(lines, strings.Repeat("─", safeW))
 
 	for _, p := range reg.Plugins {
 		if p.Active {
@@ -44,7 +51,7 @@ func RenderSidebar(reg *config.Registry, events []store.TranscriptEvent, colors 
 
 	// Separator
 	lines = append(lines, "")
-	lines = append(lines, strings.Repeat("─", w-4))
+	lines = append(lines, strings.Repeat("─", safeW))
 
 	// Recommendation
 	rec := rules.RecommendSkill(events)

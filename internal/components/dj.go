@@ -14,6 +14,10 @@ import (
 // breathing halo with rate number in the center, and bottom spectrum
 // (output tokens).
 func renderDJ(snap store.Snapshot, tick int, colors theme.Colors, w, h int) string {
+	if w < 1 || h < 1 {
+		return "Terminal too small"
+	}
+
 	specH := (h - 5) / 2 // split remaining height between top and bottom spectrum
 	if specH < 3 {
 		specH = 3

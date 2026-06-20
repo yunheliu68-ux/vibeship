@@ -11,6 +11,10 @@ import (
 )
 
 func renderSpaceship(snap store.Snapshot, tick int, colors theme.Colors, w, h int) string {
+	if w < 1 || h < 1 {
+		return "Terminal too small"
+	}
+
 	// Particle field (stars) in background
 	particles := renderParticles(tick, w, h, snap)
 
@@ -34,6 +38,11 @@ func renderSpaceship(snap store.Snapshot, tick int, colors theme.Colors, w, h in
 }
 
 func renderParticles(tick int, w int, h int, snap store.Snapshot) string {
+	// Guard against panics on very small terminals
+	if w < 1 || h < 1 {
+		return ""
+	}
+
 	// Generate pseudo-random star positions based on tick.
 	// Density scales with output token count.
 	density := 10 // base stars
@@ -115,6 +124,10 @@ func renderGauge(snap store.Snapshot, colors theme.Colors) string {
 }
 
 func renderWarpLine(snap store.Snapshot, tick int, w int, colors theme.Colors) string {
+	if w < 1 {
+		return ""
+	}
+
 	// Horizontal line of dashes scrolling left. Speed is proportional to token rate.
 	speed := 1
 	if snap.OutputTokens > 100 {

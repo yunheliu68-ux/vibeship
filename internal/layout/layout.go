@@ -12,11 +12,11 @@ const (
 
 // ViewportSize calculates the dimensions for the animation area and info panel
 // based on the terminal size. It subtracts 2 rows for the top bar and bottom
-// status bar.
+// status bar. All dimensions are clamped to a minimum of 0.
 func ViewportSize(termWidth, termHeight int) (animW, animH, infoW, infoH int) {
-	contentHeight := termHeight - 2
+	contentHeight := max(0, termHeight-2)
 	animW = int(float64(termWidth) * AnimationWidthPct)
-	infoW = termWidth - animW
+	infoW = max(0, termWidth-animW)
 	animH = contentHeight
 	infoH = contentHeight
 	return

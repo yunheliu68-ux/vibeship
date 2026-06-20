@@ -1,8 +1,10 @@
 package model
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbletea"
@@ -51,6 +53,10 @@ type Model struct {
 
 	// Sidebar scroll offset
 	sidebarScroll int
+
+	// Think panel text input state
+	thinkInput     string // current typed question text
+	thinkSubmitted string // last submitted question (shown in panel)
 }
 
 // New creates a new Model with the given store and registry. It opens the
@@ -125,6 +131,10 @@ func refreshDataCmd(m *Model) tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// When think overlay is active, handle text input
+		if m.overlay == overlayThink {
+			return m.handleThinkInput(msg)
+		}
 		return m.handleKey(msg)
 
 	case tea.WindowSizeMsg:
@@ -205,10 +215,92 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleThinkInput processes key events when the think overlay is active,
+// allowing the user to type and submit a question.
+func (m *Model) handleThinkInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Clear input and dismiss overlay
+		m.thinkInput = ""
+		m.overlay = overlayNone
+		return m, nil
+
+	case "d":
+		// Toggle overlay off
+		m.thinkInput = ""
+		m.overlay = overlayNone
+		return m, nil
+
+	case "enter":
+		if strings.TrimSpace(m.thinkInput) == "" {
+			return m, nil
+		}
+		// Write to decision log
+		m.writeDecision(m.thinkInput)
+		// Show as submitted
+		m.thinkSubmitted = m.thinkInput
+		m.thinkInput = ""
+		return m, nil
+
+	case "backspace":
+		if len(m.thinkInput) > 0 {
+			// Handle multi-byte runes correctly
+			runes := []rune(m.thinkInput)
+			m.thinkInput = string(runes[:len(runes)-1])
+		}
+		return m, nil
+
+	case " ":
+		m.thinkInput += " "
+		return m, nil
+	}
+
+	// For all other single-character keys, append to input
+	// tea.KeyMsg.String() returns the character for printable keys
+	if len(msg.String()) == 1 {
+		m.thinkInput += msg.String()
+	} else if len(msg.Runes) == 1 {
+		m.thinkInput += string(msg.Runes[0])
+	}
+
+	return m, nil
+}
+
+// writeDecision writes a decision log entry to decisions.jsonl.
+func (m *Model) writeDecision(question string) {
+	if m.decisionLog == nil {
+		return
+	}
+	sessionID := ""
+	if m.latestSnap.SessionID != "" {
+		sessionID = m.latestSnap.SessionID
+	}
+	entry := decisionEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Question:  question,
+		SessionID: sessionID,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	m.decisionLog.Write(append(data, '\n'))
+}
+
+// decisionEntry is the JSON structure written to the decision log.
+type decisionEntry struct {
+	Timestamp string `json:"timestamp"`
+	Question  string `json:"question"`
+	SessionID string `json:"session_id"`
+}
+
 // View renders the current state of the TUI.
 func (m *Model) View() string {
 	if m.width == 0 {
 		return "Starting Vibeship…\n"
+	}
+	if m.width < 20 || m.height < 10 {
+		return "Terminal too small — please resize to at least 20x10\n"
 	}
 
 	colors := theme.ColorsFor(m.theme)
@@ -312,7 +404,7 @@ func (m *Model) renderSidebar(colors theme.Colors, w, h int) string {
 }
 
 func (m *Model) renderThink(colors theme.Colors, w, h int) string {
-	return components.RenderThinkPanel(m.scope, m.recentEvents, colors, w, h)
+	return components.RenderThinkPanel(m.scope, m.recentEvents, colors, w, h, m.thinkInput, m.thinkSubmitted)
 }
 
 func (m *Model) renderHelp(colors theme.Colors) string {

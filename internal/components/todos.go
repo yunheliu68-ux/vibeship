@@ -11,6 +11,13 @@ import (
 
 // RenderTodosCard renders the todos card with a progress bar showing completion status.
 func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width int) string {
+	// Guard against panics on very small terminals
+	if width < 4 {
+		return "Terminal too small"
+	}
+
+	safeWidth := max(0, width-2)
+
 	// Find the most recent todo event
 	var latestTodo store.TranscriptEvent
 	for _, e := range events {
@@ -25,7 +32,7 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 		style := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#444444")).
-			Width(width - 2).
+			Width(safeWidth).
 			Padding(0, 1)
 		return style.Render(
 			lipgloss.NewStyle().Bold(true).Foreground(colors.Primary).Render("📋 Todos") + "\n" + content,
@@ -37,7 +44,7 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 		pct = (latestTodo.TodoDone * 100) / latestTodo.TodoTotal
 	}
 
-	barWidth := width - 6
+	barWidth := max(0, width-6)
 	filled := (pct * barWidth) / 100
 	empty := barWidth - filled
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
@@ -48,7 +55,7 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(width - 2).
+		Width(safeWidth).
 		Padding(0, 1)
 
 	return style.Render(
