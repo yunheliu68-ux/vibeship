@@ -10,8 +10,7 @@ import (
 func RenderAnimation(thm theme.ThemeName, snap store.Snapshot, tick int, colors theme.Colors, w, h int) string {
 	switch thm {
 	case theme.DJ:
-		// TODO: implement DJ visualizer (future task)
-		return renderSpaceship(snap, tick, colors, w, h)
+		return renderDJ(snap, tick, colors, w, h)
 	default:
 		return renderSpaceship(snap, tick, colors, w, h)
 	}
