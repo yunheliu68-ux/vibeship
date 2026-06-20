@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -21,10 +22,10 @@ func runBinary(args ...string) (string, int) {
 	if err := build.Run(); err != nil {
 		return err.Error(), -1
 	}
+	defer os.Remove(bin)
 	cmd := exec.Command(bin, args...)
 	out, _ := cmd.CombinedOutput()
 	code := cmd.ProcessState.ExitCode()
-	exec.Command("rm", "-f", bin).Run()
 	return string(out), code
 }
 

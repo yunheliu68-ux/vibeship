@@ -1,0 +1,4 @@
+vibeship
+vibeship_test_bin
+*.db
+.vibeship/
