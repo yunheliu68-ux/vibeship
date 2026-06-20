@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"github.com/francis/vibeship/internal/ingest"
+	"github.com/francis/vibeship/internal/store"
 )
 
 func main() {
@@ -14,8 +18,29 @@ func main() {
 }
 
 func runCollect() {
-	fmt.Fprintln(os.Stderr, "vibeship collect: not yet implemented")
-	os.Exit(0)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vibeship: cannot find home dir:", err)
+		os.Exit(1)
+	}
+
+	dbPath := filepath.Join(home, ".vibeship", "data.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		fmt.Fprintln(os.Stderr, "vibeship: cannot create data dir:", err)
+		os.Exit(1)
+	}
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "vibeship: cannot open store:", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	if err := ingest.IngestStatusline(os.Stdin, st); err != nil {
+		fmt.Fprintln(os.Stderr, "vibeship: ingest error:", err)
+		os.Exit(1)
+	}
 }
 
 func runTUI() {
