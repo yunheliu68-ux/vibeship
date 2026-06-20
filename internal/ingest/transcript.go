@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/francis/vibeship/internal/store"
@@ -71,9 +72,26 @@ func processTranscripts(sessionsDir string, st *store.Store, lastPositions map[s
 			continue
 		}
 		path := filepath.Join(sessionsDir, entry.Name())
-		lastPos := lastPositions[path]
 
-		fi, err := os.Stat(path)
+		// Resolve symlinks to prevent path traversal
+		resolvedPath, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		cleanSessionsDir := filepath.Clean(sessionsDir)
+		if !strings.HasPrefix(resolvedPath, cleanSessionsDir+"/") && resolvedPath != cleanSessionsDir {
+			continue
+		}
+
+		// Ensure it's a regular file, not a symlink
+		info, err := os.Lstat(resolvedPath)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+
+		lastPos := lastPositions[resolvedPath]
+
+		fi, err := os.Stat(resolvedPath)
 		if err != nil {
 			continue
 		}
@@ -82,7 +100,7 @@ func processTranscripts(sessionsDir string, st *store.Store, lastPositions map[s
 			continue // no new data
 		}
 
-		f, err := os.Open(path)
+		f, err := os.Open(resolvedPath)
 		if err != nil {
 			continue
 		}
@@ -113,7 +131,7 @@ func processTranscripts(sessionsDir string, st *store.Store, lastPositions map[s
 
 		// Update position
 		pos, _ := f.Seek(0, 1) // current position
-		lastPositions[path] = pos
+		lastPositions[resolvedPath] = pos
 		f.Close()
 	}
 }
