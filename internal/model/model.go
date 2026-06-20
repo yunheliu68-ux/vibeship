@@ -109,8 +109,14 @@ type refreshMsg struct {
 
 func refreshDataCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
-		snap, _ := m.store.LatestSnapshot()
-		events, _ := m.store.RecentEvents(5 * time.Minute)
+		snap, err := m.store.LatestSnapshot()
+		if err != nil {
+			snap = store.Snapshot{} // empty snapshot is fine
+		}
+		events, err := m.store.RecentEvents(5 * time.Minute)
+		if err != nil {
+			events = nil
+		}
 		return refreshMsg{snap: snap, events: events}
 	}
 }
@@ -275,6 +281,15 @@ func (m *Model) renderTopBar(colors theme.Colors) string {
 }
 
 func (m *Model) renderAnimation(colors theme.Colors, w, h int) string {
+	if m.latestSnap.SessionID == "" {
+		msg := "Waiting for Claude Code…\n\nStart Claude Code to see data."
+		return lipgloss.NewStyle().
+			Foreground(colors.Dim).
+			Width(w).
+			Height(h).
+			Align(lipgloss.Center, lipgloss.Center).
+			Render(msg)
+	}
 	return components.RenderAnimation(m.theme, m.latestSnap, m.tick, colors, w, h)
 }
 

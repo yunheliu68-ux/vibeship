@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/francis/vibeship/internal/store"
@@ -10,6 +11,8 @@ import (
 
 // RenderMetricsCard renders the metrics card showing cost, context usage, and rate limit pace.
 func RenderMetricsCard(snap store.Snapshot, colors theme.Colors, width int) string {
+	stale := time.Since(snap.Timestamp) > 30*time.Second
+
 	costStr := fmt.Sprintf("$%.2f", snap.TotalCostUSD)
 	ctxStr := fmt.Sprintf("%.0f%% ctx", snap.ContextUsedPct)
 
@@ -31,6 +34,10 @@ func RenderMetricsCard(snap store.Snapshot, colors theme.Colors, width int) stri
 		lipgloss.NewStyle().Foreground(colors.Text).Render(limitStr),
 		lipgloss.NewStyle().Render(paceEmoji+" "+paceLabel),
 	)
+
+	if stale && snap.SessionID != "" {
+		content = lipgloss.NewStyle().Foreground(colors.Dim).Render(content)
+	}
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
