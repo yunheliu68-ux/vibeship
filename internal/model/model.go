@@ -1,7 +1,6 @@
 package model
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/francis/vibeship/internal/components"
 	"github.com/francis/vibeship/internal/config"
 	"github.com/francis/vibeship/internal/ingest"
 	"github.com/francis/vibeship/internal/layout"
@@ -269,7 +269,9 @@ func (m *Model) Close() {
 // ---------------------------------------------------------------------------
 
 func (m *Model) renderTopBar(colors theme.Colors) string {
-	return fmt.Sprintf("Vibeship · %s  🚀", filepath.Base(m.projectDir))
+	return components.RenderTopBar(
+		filepath.Base(m.projectDir), "", m.theme, colors, m.width,
+	)
 }
 
 func (m *Model) renderAnimation(colors theme.Colors, w, h int) string {
@@ -277,7 +279,17 @@ func (m *Model) renderAnimation(colors theme.Colors, w, h int) string {
 }
 
 func (m *Model) renderInfoPanel(colors theme.Colors, w, h int) string {
-	return lipgloss.NewStyle().Width(w).Height(h).Render("info panel")
+	cardW := w
+	metricsView := components.RenderMetricsCard(m.latestSnap, colors, cardW)
+	activityView := components.RenderActivityCard(m.recentEvents, colors, cardW)
+	agentsView := components.RenderAgentsCard(m.recentEvents, colors, cardW)
+	todosView := components.RenderTodosCard(m.recentEvents, colors, cardW)
+	return lipgloss.JoinVertical(lipgloss.Top,
+		metricsView,
+		activityView,
+		agentsView,
+		todosView,
+	)
 }
 
 func (m *Model) renderSidebar(colors theme.Colors, w, h int) string {
