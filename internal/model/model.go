@@ -293,7 +293,7 @@ func (m *Model) renderInfoPanel(colors theme.Colors, w, h int) string {
 }
 
 func (m *Model) renderSidebar(colors theme.Colors, w, h int) string {
-	return lipgloss.NewStyle().Width(w).Height(h).Render("sidebar")
+	return components.RenderSidebar(m.registry, m.recentEvents, colors, w, h)
 }
 
 func (m *Model) renderThink(colors theme.Colors, w, h int) string {
@@ -301,5 +301,5 @@ func (m *Model) renderThink(colors theme.Colors, w, h int) string {
 }
 
 func (m *Model) renderHelp(colors theme.Colors) string {
-	return "Help overlay"
+	return components.RenderHelp(colors, m.width-10, m.height-4)
 }
