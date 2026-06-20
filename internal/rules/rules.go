@@ -15,7 +15,6 @@ func RecommendSkill(events []store.TranscriptEvent) string {
 	cutoff := time.Now().Add(-5 * time.Minute)
 	hasEdit := false
 	hasBashError := false
-	hasNewBranch := false
 
 	for _, e := range events {
 		if e.Timestamp.Before(cutoff) {
@@ -38,9 +37,7 @@ func RecommendSkill(events []store.TranscriptEvent) string {
 	if hasBashError {
 		return "systematic-debugging"
 	}
-	if hasNewBranch {
-		return "writing-plans"
-	}
+	// TODO: add git branch-change detection via transcript events to suggest "writing-plans"
 	return ""
 }
 
@@ -52,7 +49,6 @@ func GenerateCheckQuestions(scope *config.Scope, events []store.TranscriptEvent)
 	if scope != nil {
 		// Check if recent file edits are within scope
 		var outOfScopeFiles []string
-		var inScopeFiles []string
 		for _, e := range events {
 			if e.Timestamp.Before(cutoff) {
 				continue
@@ -61,9 +57,7 @@ func GenerateCheckQuestions(scope *config.Scope, events []store.TranscriptEvent)
 				if e.Detail == "" {
 					continue
 				}
-				if isInScope(e.Detail, scope.Files) {
-					inScopeFiles = append(inScopeFiles, e.Detail)
-				} else {
+				if !isInScope(e.Detail, scope.Files) {
 					outOfScopeFiles = append(outOfScopeFiles, e.Detail)
 				}
 			}
@@ -172,16 +166,19 @@ func isInScope(filePath string, scopeFiles []string) bool {
 				return true
 			}
 		} else if strings.HasSuffix(pattern, "/*") {
+			// match files one level deep in dir (e.g. "internal/*" matches "internal/foo.go" but not "internal/sub/foo.go")
 			dir := strings.TrimSuffix(pattern, "/*")
-			if strings.HasPrefix(filePath, dir) {
+			prefix := dir + "/"
+			if strings.HasPrefix(filePath, prefix) && !strings.Contains(filePath[len(prefix):], "/") {
 				return true
 			}
 		} else if strings.HasSuffix(pattern, "/**") {
+			// match files recursively in dir (e.g. "internal/**" matches "internal/foo.go" and "internal/sub/foo.go")
 			dir := strings.TrimSuffix(pattern, "/**")
-			if strings.HasPrefix(filePath, dir) {
+			if strings.HasPrefix(filePath, dir+"/") {
 				return true
 			}
-		} else if matched, _ := filepath.Match(pattern, filePath); matched {
+		} else if matched, err := filepath.Match(pattern, filePath); err == nil && matched {
 			return true
 		}
 	}
