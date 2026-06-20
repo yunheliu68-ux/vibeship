@@ -128,7 +128,8 @@ func processFile(path, projPath string, st *store.Store, lastPositions map[strin
 		f.Seek(lastPos, 0)
 	}
 
-	scanner := bufio.NewScanner(f)
+scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 256*1024), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -210,24 +211,12 @@ func extractEvents(rec transcriptRecord, sessionFile string) []store.TranscriptE
 
 		// Subagent dispatch via Agent or Task tool
 		if c.Name == "Agent" || c.Name == "Task" {
-			subName := ""
-			if n, ok := c.Input["description"].(string); ok {
-				subName = n
-			} else if n, ok := c.Input["name"].(string); ok {
-				subName = n
-			}
-			model := ""
-			if m, ok := c.Input["model"].(string); ok {
-				model = m
-			}
+			subName := firstNonEmpty(str(c.Input["description"]), str(c.Input["subject"]),
+				str(c.Input["subagent_type"]), str(c.Input["name"]))
 			if subName != "" {
 				events = append(events, store.TranscriptEvent{
-					Timestamp: ts,
-					SessionID: sessionFile,
-					EventType: "agent",
-					Name:      subName,
-					Detail:    model,
-					Status:    "active",
+					Timestamp: ts, SessionID: sessionFile,
+					EventType: "agent", Name: subName, Detail: str(c.Input["model"]), Status: "active",
 				})
 			}
 		}
@@ -253,7 +242,26 @@ func extractEvents(rec transcriptRecord, sessionFile string) []store.TranscriptE
 				})
 			}
 		}
+
+		// TodoWrite snapshot (v2.1+ full list)
+		if c.Name == "TodoWrite" {
+			if raw, ok := c.Input["todos"].([]interface{}); ok {
+				done := 0
+				for _, it := range raw {
+					if m, ok := it.(map[string]interface{}); ok && str(m["status"]) == "completed" {
+						done++
+					}
+				}
+				events = append(events, store.TranscriptEvent{
+					Timestamp: ts, SessionID: sessionFile,
+					EventType: "todo_snapshot", TodoTotal: len(raw), TodoDone: done,
+				})
+			}
+		}
 	}
 
 	return events
 }
+
+func str(v interface{}) string { s, _ := v.(string); return s }
+func firstNonEmpty(ss ...string) string { for _, s := range ss { if s != "" { return s } }; return "" }

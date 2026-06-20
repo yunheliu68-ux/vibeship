@@ -18,17 +18,23 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 
 	safeWidth := max(0, width-2)
 
-	// Aggregate all todo events
-	totalCreated := 0
-	totalDone := 0
+	// Prefer most recent TodoWrite full snapshot (events are new→old)
 	for _, e := range events {
-		if e.EventType == "todo" {
-			totalCreated += e.TodoTotal
-			totalDone += e.TodoDone
+		if e.EventType == "todo_snapshot" {
+			return renderTodoBar(e.TodoDone, e.TodoTotal, colors, safeWidth)
 		}
 	}
 
-	if totalCreated == 0 && totalDone == 0 {
+	// Fallback: incremental TaskCreate/TaskUpdate in window
+	created, done := 0, 0
+	for _, e := range events {
+		if e.EventType == "todo" {
+			created += e.TodoTotal
+			done += e.TodoDone
+		}
+	}
+
+	if created == 0 && done == 0 {
 		content := "—"
 		style := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -40,10 +46,13 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 		)
 	}
 
-	totalCreated += totalDone // compensate: TaskUpdate completed also counts toward total
+	return renderTodoBar(done, created, colors, safeWidth)
+}
+
+func renderTodoBar(done, total int, colors theme.Colors, width int) string {
 	pct := 0
-	if totalCreated > 0 {
-		pct = (totalDone * 100) / totalCreated
+	if total > 0 {
+		pct = (done * 100) / total
 		if pct > 100 {
 			pct = 100
 		}
@@ -54,13 +63,12 @@ func RenderTodosCard(events []store.TranscriptEvent, colors theme.Colors, width 
 	empty := barWidth - filled
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
 
-	content := fmt.Sprintf("%s %d%% · %d/%d done",
-		bar, pct, totalDone, totalCreated)
+	content := fmt.Sprintf("%s %d%% · %d/%d done", bar, pct, done, total)
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(safeWidth).
+		Width(width).
 		Padding(0, 1)
 
 	return style.Render(
