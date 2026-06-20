@@ -13,7 +13,8 @@ import (
 
 // StatuslinePayload matches the JSON Claude Code sends to its statusline command.
 type StatuslinePayload struct {
-	Model struct {
+	SessionID string `json:"session_id"`
+	Model     struct {
 		DisplayName string `json:"display_name"`
 	} `json:"model"`
 	ContextWindow struct {
@@ -31,11 +32,11 @@ type StatuslinePayload struct {
 	RateLimits struct {
 		FiveHour struct {
 			UsedPercentage float64 `json:"used_percentage"`
-			ResetsAt       string  `json:"resets_at"`
+			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
 		SevenDay struct {
 			UsedPercentage float64 `json:"used_percentage"`
-			ResetsAt       string  `json:"resets_at"`
+			ResetsAt       int64   `json:"resets_at"`
 		} `json:"seven_day"`
 	} `json:"rate_limits"`
 }
@@ -56,7 +57,7 @@ func IngestStatusline(r io.Reader, st *store.Store) error {
 			continue
 		}
 
-		sessionID := os.Getenv("CLAUDE_SESSION_ID")
+		sessionID := payload.SessionID
 		if sessionID == "" {
 			sessionID = "default"
 		}
@@ -71,9 +72,9 @@ func IngestStatusline(r io.Reader, st *store.Store) error {
 			CacheReadTokens:   payload.ContextWindow.CurrentUsage.CacheReadInputTokens,
 			TotalCostUSD:      payload.Cost.TotalCostUSD,
 			FiveHourUsedPct:   payload.RateLimits.FiveHour.UsedPercentage,
-			FiveHourResetsAt:  payload.RateLimits.FiveHour.ResetsAt,
+			FiveHourResetsAt:  isoTime(payload.RateLimits.FiveHour.ResetsAt),
 			SevenDayUsedPct:   payload.RateLimits.SevenDay.UsedPercentage,
-			SevenDayResetsAt:   payload.RateLimits.SevenDay.ResetsAt,
+			SevenDayResetsAt:  isoTime(payload.RateLimits.SevenDay.ResetsAt),
 		}
 
 		if err := st.InsertSnapshot(snap); err != nil {
@@ -81,4 +82,11 @@ func IngestStatusline(r io.Reader, st *store.Store) error {
 		}
 	}
 	return scanner.Err()
+}
+
+func isoTime(u int64) string {
+	if u <= 0 {
+		return ""
+	}
+	return time.Unix(u, 0).UTC().Format(time.RFC3339)
 }
