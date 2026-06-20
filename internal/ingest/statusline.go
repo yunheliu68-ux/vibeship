@@ -56,8 +56,13 @@ func IngestStatusline(r io.Reader, st *store.Store) error {
 			continue
 		}
 
+		sessionID := os.Getenv("CLAUDE_SESSION_ID")
+		if sessionID == "" {
+			sessionID = "default"
+		}
 		snap := store.Snapshot{
 			Timestamp:         time.Now(),
+			SessionID:         sessionID,
 			ModelDisplayName:  payload.Model.DisplayName,
 			ContextUsedPct:    payload.ContextWindow.UsedPercentage,
 			InputTokens:       payload.ContextWindow.CurrentUsage.InputTokens,
