@@ -13,19 +13,22 @@ import (
 )
 
 // transcriptRecord represents one line in the Claude Code session JSONL.
+// Claude Code v2.1+ stores tool calls inside message.content[] blocks.
 type transcriptRecord struct {
 	Timestamp string `json:"timestamp"`
 	Type      string `json:"type"`
-	Tool      struct {
-		Name  string                 `json:"name"`
-		Input map[string]interface{} `json:"input"`
-	} `json:"tool"`
-	Message struct {
+	SessionID string `json:"sessionId"`
+	Message   struct {
 		Role    string `json:"role"`
+		Model   string `json:"model"`
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string                 `json:"type"`
+			Text  string                 `json:"text"`
+			Name  string                 `json:"name"`
+			ID    string                 `json:"id"`
+			Input map[string]interface{} `json:"input"`
 		} `json:"content"`
+		StopReason string `json:"stop_reason"`
 	} `json:"message"`
 	TodoWrite struct {
 		NewTodos []struct {
@@ -41,9 +44,11 @@ type transcriptRecord struct {
 	} `json:"subagent"`
 }
 
-func StartTranscriptPoller(st *store.Store, sessionsDir string) chan struct{} {
+// StartTranscriptPoller starts a background goroutine that scans
+// ~/.claude/projects/*/ for .jsonl transcript files every 2 seconds.
+func StartTranscriptPoller(st *store.Store, projectsDir string) chan struct{} {
 	stop := make(chan struct{})
-	lastPositions := make(map[string]int64) // file path -> last read offset
+	lastPositions := make(map[string]int64)
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -54,165 +59,200 @@ func StartTranscriptPoller(st *store.Store, sessionsDir string) chan struct{} {
 			case <-stop:
 				return
 			case <-ticker.C:
-				processTranscripts(sessionsDir, st, lastPositions)
+				scanProjects(projectsDir, st, lastPositions)
 			}
 		}
 	}()
 	return stop
 }
 
-func processTranscripts(sessionsDir string, st *store.Store, lastPositions map[string]int64) {
-	entries, err := os.ReadDir(sessionsDir)
+func scanProjects(projectsDir string, st *store.Store, lastPositions map[string]int64) {
+	projectDirs, err := os.ReadDir(projectsDir)
 	if err != nil {
 		return
 	}
 
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != ".jsonl" {
+	for _, projectDir := range projectDirs {
+		if !projectDir.IsDir() {
 			continue
 		}
-		path := filepath.Join(sessionsDir, entry.Name())
-
-		// Resolve symlinks to prevent path traversal
-		resolvedPath, err := filepath.EvalSymlinks(path)
+		projPath := filepath.Join(projectsDir, projectDir.Name())
+		entries, err := os.ReadDir(projPath)
 		if err != nil {
 			continue
 		}
-		cleanSessionsDir := filepath.Clean(sessionsDir)
-		if !strings.HasPrefix(resolvedPath, cleanSessionsDir+"/") && resolvedPath != cleanSessionsDir {
-			continue
-		}
-
-		// Ensure it's a regular file, not a symlink
-		info, err := os.Lstat(resolvedPath)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			continue
-		}
-
-		lastPos := lastPositions[resolvedPath]
-
-		fi, err := os.Stat(resolvedPath)
-		if err != nil {
-			continue
-		}
-
-		if fi.Size() <= lastPos {
-			continue // no new data
-		}
-
-		f, err := os.Open(resolvedPath)
-		if err != nil {
-			continue
-		}
-
-		if lastPos > 0 {
-			f.Seek(lastPos, 0)
-		}
-
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
+		for _, entry := range entries {
+			if filepath.Ext(entry.Name()) != ".jsonl" {
 				continue
 			}
-
-			var rec transcriptRecord
-			if err := json.Unmarshal(line, &rec); err != nil {
-				continue
-			}
-
-			events := extractEvents(rec, entry.Name())
-			for _, e := range events {
-				if err := st.InsertEvent(e); err != nil {
-					fmt.Fprintf(os.Stderr, "vibeship: insert event: %v\n", err)
-				}
-			}
+			processFile(filepath.Join(projPath, entry.Name()), projPath, st, lastPositions)
 		}
-
-		// Update position
-		pos, _ := f.Seek(0, 1) // current position
-		lastPositions[resolvedPath] = pos
-		f.Close()
 	}
+}
+
+func processFile(path, projPath string, st *store.Store, lastPositions map[string]int64) {
+	// Resolve symlinks to prevent path traversal
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return
+	}
+	cleanProjPath := filepath.Clean(projPath)
+	if !strings.HasPrefix(resolvedPath, cleanProjPath+"/") && resolvedPath != cleanProjPath {
+		return
+	}
+
+	// Ensure it's a regular file, not a symlink
+	info, err := os.Lstat(resolvedPath)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return
+	}
+
+	lastPos := lastPositions[resolvedPath]
+
+	fi, err := os.Stat(resolvedPath)
+	if err != nil {
+		return
+	}
+
+	if fi.Size() <= lastPos {
+		return // no new data
+	}
+
+	f, err := os.Open(resolvedPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	if lastPos > 0 {
+		f.Seek(lastPos, 0)
+	}
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var rec transcriptRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			continue
+		}
+
+		events := extractEvents(rec, filepath.Base(path))
+		for _, e := range events {
+			if err := st.InsertEvent(e); err != nil {
+				fmt.Fprintf(os.Stderr, "vibeship: insert event: %v\n", err)
+			}
+		}
+	}
+
+	// Update position
+	pos, _ := f.Seek(0, 1)
+	lastPositions[resolvedPath] = pos
 }
 
 func extractEvents(rec transcriptRecord, sessionFile string) []store.TranscriptEvent {
 	var events []store.TranscriptEvent
 	ts, _ := time.Parse(time.RFC3339Nano, rec.Timestamp)
+	if ts.IsZero() {
+		ts = time.Now()
+	}
 
-	// Tool call events
-	if rec.Tool.Name != "" {
+	// Parse tool calls from message.content[] blocks (v2.1+ format)
+	for _, c := range rec.Message.Content {
+		if c.Type != "tool_use" || c.Name == "" {
+			continue
+		}
+
+		// Extract file path detail
 		detail := ""
-		if filePath, ok := rec.Tool.Input["file_path"].(string); ok {
+		if filePath, ok := c.Input["file_path"].(string); ok {
 			detail = filePath
-		} else if path, ok := rec.Tool.Input["path"].(string); ok {
+		} else if path, ok := c.Input["path"].(string); ok {
 			detail = path
 		}
+
+		// Tool call event
 		events = append(events, store.TranscriptEvent{
 			Timestamp: ts,
 			SessionID: sessionFile,
 			EventType: "tool_call",
-			Name:      rec.Tool.Name,
+			Name:      c.Name,
 			Status:    "active",
 			Detail:    detail,
 		})
-	}
 
-	// Skill invocations (Skill tool)
-	if rec.Tool.Name == "Skill" {
-		if skillName, ok := rec.Tool.Input["skill"].(string); ok {
-			events = append(events, store.TranscriptEvent{
-				Timestamp: ts,
-				SessionID: sessionFile,
-				EventType: "skill",
-				Name:      skillName,
-				Status:    "active",
-			})
+		// Skill invocation
+		if c.Name == "Skill" {
+			if skillName, ok := c.Input["skill"].(string); ok {
+				events = append(events, store.TranscriptEvent{
+					Timestamp: ts,
+					SessionID: sessionFile,
+					EventType: "skill",
+					Name:      skillName,
+					Status:    "active",
+				})
+			}
 		}
-	}
 
-	// MCP tool calls
-	if rec.Tool.Name != "" {
-		// MCP tools have pattern: mcp__server__tool
-		if len(rec.Tool.Name) > 5 && rec.Tool.Name[:5] == "mcp__" {
+		// MCP tool call
+		if len(c.Name) > 5 && c.Name[:5] == "mcp__" {
 			events = append(events, store.TranscriptEvent{
 				Timestamp: ts,
 				SessionID: sessionFile,
 				EventType: "mcp",
-				Name:      rec.Tool.Name,
+				Name:      c.Name,
 				Status:    "active",
 			})
 		}
-	}
 
-	// Todo events
-	if len(rec.TodoWrite.NewTodos) > 0 {
-		total := len(rec.TodoWrite.NewTodos)
-		done := 0
-		for _, t := range rec.TodoWrite.NewTodos {
-			if t.Status == "completed" {
-				done++
+		// Subagent dispatch via Agent or Task tool
+		if c.Name == "Agent" || c.Name == "Task" {
+			subName := ""
+			if n, ok := c.Input["description"].(string); ok {
+				subName = n
+			} else if n, ok := c.Input["name"].(string); ok {
+				subName = n
+			}
+			model := ""
+			if m, ok := c.Input["model"].(string); ok {
+				model = m
+			}
+			if subName != "" {
+				events = append(events, store.TranscriptEvent{
+					Timestamp: ts,
+					SessionID: sessionFile,
+					EventType: "agent",
+					Name:      subName,
+					Detail:    model,
+					Status:    "active",
+				})
 			}
 		}
-		events = append(events, store.TranscriptEvent{
-			Timestamp: ts,
-			SessionID: sessionFile,
-			EventType: "todo",
-			TodoTotal: total,
-			TodoDone:  done,
-		})
-	}
 
-	// Subagent events
-	if rec.Subagent.ID != "" {
-		events = append(events, store.TranscriptEvent{
-			Timestamp: ts,
-			SessionID: sessionFile,
-			EventType: "agent",
-			Name:      rec.Subagent.Name,
-			Detail:    rec.Subagent.Model,
-			Status:    "active",
-		})
+		// Todo events from TaskCreate / TaskUpdate (v2.1+)
+		if c.Name == "TaskCreate" {
+			events = append(events, store.TranscriptEvent{
+				Timestamp: ts,
+				SessionID: sessionFile,
+				EventType: "todo",
+				TodoTotal: 1,
+				TodoDone:  0,
+			})
+		}
+		if c.Name == "TaskUpdate" {
+			if st, ok := c.Input["status"].(string); ok && st == "completed" {
+				events = append(events, store.TranscriptEvent{
+					Timestamp: ts,
+					SessionID: sessionFile,
+					EventType: "todo",
+					TodoTotal: 0,
+					TodoDone:  1,
+				})
+			}
+		}
 	}
 
 	return events

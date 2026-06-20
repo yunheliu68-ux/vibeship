@@ -9,58 +9,72 @@ import (
 	"github.com/francis/vibeship/internal/theme"
 )
 
-// RenderActivityCard renders the activity card showing currently active tools, skills, and MCP connections.
-func RenderActivityCard(events []store.TranscriptEvent, colors theme.Colors, width int) string {
-	var activeTool, activeSkill, activeMCP string
+// RenderActivityCard renders the activity card showing active skills, MCP, and tools.
+// Priority: skills > MCP > tools.
+func RenderActivityCard(events []store.TranscriptEvent, recommendation string, colors theme.Colors, width int) string {
+	// Collect unique active items
+	activeSkills := make(map[string]bool)
+	activeMCPs := make(map[string]bool)
+	activeTools := make(map[string]string) // toolName -> detail
+	completedCount := 0
 
 	for _, e := range events {
 		switch e.EventType {
-		case "tool_call":
-			if e.Status == "active" {
-				if e.Detail != "" {
-					activeTool = fmt.Sprintf("◐ %s: %s", e.Name, e.Detail)
-				} else {
-					activeTool = fmt.Sprintf("◐ %s", e.Name)
-				}
-			}
 		case "skill":
 			if e.Status == "active" {
-				activeSkill = fmt.Sprintf("🧩 %s", e.Name)
+				activeSkills[e.Name] = true
 			}
 		case "mcp":
 			if e.Status == "active" {
-				// Extract server name from mcp__server__tool
 				parts := strings.SplitN(e.Name, "__", 3)
+				server := e.Name
 				if len(parts) >= 2 {
-					activeMCP = fmt.Sprintf("🔌 %s", parts[1])
+					server = parts[1]
 				}
+				activeMCPs[server] = true
 			}
-		}
-	}
-
-	// Count completed tools
-	doneCount := 0
-	for _, e := range events {
-		if e.EventType == "tool_call" && e.Status == "done" {
-			doneCount++
+		case "tool_call":
+			if e.Status == "active" {
+				activeTools[e.Name] = e.Detail
+			} else if e.Status == "done" {
+				completedCount++
+			}
 		}
 	}
 
 	var lines []string
-	if activeTool != "" {
-		lines = append(lines, activeTool)
+
+	// Skills first (most important — what the user cares about)
+	for name := range activeSkills {
+		lines = append(lines, fmt.Sprintf("🧩 %s", name))
 	}
-	if activeSkill != "" {
-		lines = append(lines, activeSkill)
+
+	// MCP servers second
+	for name := range activeMCPs {
+		lines = append(lines, fmt.Sprintf("🔌 %s", name))
 	}
-	if activeMCP != "" {
-		lines = append(lines, activeMCP)
-	}
-	if doneCount > 0 {
-		lines = append(lines, fmt.Sprintf("✓ %d completed", doneCount))
-	}
-	if len(lines) == 0 {
-		lines = append(lines, "—")
+
+	// Tools third — show count by type if many, otherwise list
+	if len(activeSkills) == 0 && len(activeMCPs) == 0 && len(activeTools) > 0 {
+		toolCounts := make(map[string]int)
+		for name := range activeTools {
+			toolCounts[name]++
+		}
+		var parts []string
+		for name, count := range toolCounts {
+			if count > 1 {
+				parts = append(parts, fmt.Sprintf("%s×%d", name, count))
+			} else {
+				parts = append(parts, name)
+			}
+		}
+		lines = append(lines, "◐ "+strings.Join(parts, " · "))
+	} else if len(activeSkills) == 0 && len(activeMCPs) == 0 {
+		if completedCount > 0 {
+			lines = append(lines, fmt.Sprintf("✓ %d tools completed", completedCount))
+		} else {
+			lines = append(lines, "—")
+		}
 	}
 
 	style := lipgloss.NewStyle().
@@ -69,8 +83,11 @@ func RenderActivityCard(events []store.TranscriptEvent, colors theme.Colors, wid
 		Width(width - 2).
 		Padding(0, 1)
 
-	return style.Render(
-		lipgloss.NewStyle().Bold(true).Foreground(colors.Primary).Render("⚡ Activity") + "\n" +
-			strings.Join(lines, "\n"),
-	)
+	if recommendation != "" {
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(colors.Warning).Render("💡 "+recommendation))
+	}
+
+	header := lipgloss.NewStyle().Bold(true).Foreground(colors.Primary).Render("⚡ Activity")
+	return style.Render(header + "\n" + strings.Join(lines, "\n"))
 }

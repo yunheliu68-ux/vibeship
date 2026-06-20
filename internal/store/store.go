@@ -154,7 +154,7 @@ func (s *Store) InsertEvent(e TranscriptEvent) error {
 
 // RecentEvents returns up to 50 transcript events newer than the given duration.
 func (s *Store) RecentEvents(since time.Duration) ([]TranscriptEvent, error) {
-	cutoff := time.Now().Add(-since).Format(time.RFC3339)
+	cutoff := time.Now().UTC().Add(-since).Format(time.RFC3339)
 	rows, err := s.db.Query(
 		`SELECT timestamp, session_id, event_type, name, status, detail, duration_ms, todo_total, todo_done
 		 FROM transcript_events WHERE timestamp >= ? ORDER BY id DESC LIMIT 50`,

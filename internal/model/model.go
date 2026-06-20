@@ -13,6 +13,7 @@ import (
 	"github.com/francis/vibeship/internal/components"
 	"github.com/francis/vibeship/internal/config"
 	"github.com/francis/vibeship/internal/ingest"
+	"github.com/francis/vibeship/internal/rules"
 	"github.com/francis/vibeship/internal/layout"
 	"github.com/francis/vibeship/internal/store"
 	"github.com/francis/vibeship/internal/theme"
@@ -57,6 +58,11 @@ type Model struct {
 	// Think panel text input state
 	thinkInput     string // current typed question text
 	thinkSubmitted string // last submitted question (shown in panel)
+
+	// Rate tracking
+	prevOutputTokens int64
+	prevSnapshotTime time.Time
+	outputRate       int64 // tokens per second
 }
 
 // New creates a new Model with the given store and registry. It opens the
@@ -85,8 +91,8 @@ func New(st *store.Store, reg *config.Registry) *Model {
 	}
 
 	// Start transcript poller
-	sessionsDir := filepath.Join(home, ".claude", "sessions")
-	m.pollStop = ingest.StartTranscriptPoller(st, sessionsDir)
+	projectsDir := filepath.Join(home, ".claude", "projects")
+	m.pollStop = ingest.StartTranscriptPoller(st, projectsDir)
 
 	return m
 }
@@ -152,6 +158,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case refreshMsg:
 		if msg.snap.SessionID != "" {
+			// Calculate output token rate
+			if m.prevOutputTokens > 0 && msg.snap.OutputTokens > m.prevOutputTokens {
+				elapsed := msg.snap.Timestamp.Sub(m.prevSnapshotTime).Seconds()
+				if elapsed > 0.1 {
+					m.outputRate = int64(float64(msg.snap.OutputTokens-m.prevOutputTokens) / elapsed)
+				}
+			}
+			m.prevOutputTokens = msg.snap.OutputTokens
+			m.prevSnapshotTime = msg.snap.Timestamp
 			m.latestSnap = msg.snap
 		}
 		if len(msg.events) > 0 {
@@ -338,11 +353,58 @@ func (m *Model) renderDashboard(colors theme.Colors) string {
 	}
 
 	if m.overlay == overlayThink {
-		thinkView := m.renderThink(colors, infoW, infoH)
-		return lipgloss.JoinVertical(lipgloss.Top,
-			topBar,
-			lipgloss.JoinHorizontal(lipgloss.Top, animView, thinkView),
+		// Bottom-right floating popup (not full overlay)
+		popupW := infoW
+		if popupW > 40 {
+			popupW = 40
+		}
+		if popupW < 28 {
+			popupW = 28
+		}
+		popupH := 16
+		thinkView := m.renderThink(colors, popupW, popupH)
+
+		// Render normal dashboard with think popup placed bottom-right
+		main := lipgloss.JoinHorizontal(lipgloss.Top, animView, infoView)
+		mainWithPopup := lipgloss.Place(m.width, animH,
+			lipgloss.Right, lipgloss.Bottom,
+			thinkView,
+			lipgloss.WithWhitespaceChars("│"),
 		)
+		_ = main
+		_ = mainWithPopup
+
+		// Manual composition: draw popup over the bottom-right of the main content
+		mainLines := strings.Split(main, "\n")
+		popupLines := strings.Split(thinkView, "\n")
+		result := make([]string, len(mainLines))
+		copy(result, mainLines)
+		for i := 0; i < len(popupLines) && i < len(result); i++ {
+			targetRow := len(result) - len(popupLines) + i
+			if targetRow < 0 {
+				continue
+			}
+			if targetRow >= len(result) {
+				break
+			}
+			row := []rune(result[targetRow])
+			popupRow := []rune(popupLines[i])
+			padding := m.width - len(popupRow)
+			if padding < 0 {
+				padding = 0
+			}
+			startCol := padding
+			for j := 0; j < len(popupRow); j++ {
+				col := startCol + j
+				if col < len(row) && popupRow[j] != ' ' {
+					row[col] = popupRow[j]
+				}
+			}
+			result[targetRow] = string(row)
+		}
+
+		statusBar := layout.StatusBar("d=close  Enter=send  Esc=dismiss", m.width)
+		return lipgloss.JoinVertical(lipgloss.Top, topBar, strings.Join(result, "\n"), statusBar)
 	}
 
 	// Default view
@@ -382,13 +444,14 @@ func (m *Model) renderAnimation(colors theme.Colors, w, h int) string {
 			Align(lipgloss.Center, lipgloss.Center).
 			Render(msg)
 	}
-	return components.RenderAnimation(m.theme, m.latestSnap, m.tick, colors, w, h)
+	return components.RenderAnimation(m.theme, m.latestSnap, m.outputRate, m.tick, colors, w, h)
 }
 
 func (m *Model) renderInfoPanel(colors theme.Colors, w, h int) string {
 	cardW := w
 	metricsView := components.RenderMetricsCard(m.latestSnap, colors, cardW)
-	activityView := components.RenderActivityCard(m.recentEvents, colors, cardW)
+	rec := rules.RecommendSkill(m.recentEvents)
+	activityView := components.RenderActivityCard(m.recentEvents, rec, colors, cardW)
 	agentsView := components.RenderAgentsCard(m.recentEvents, colors, cardW)
 	todosView := components.RenderTodosCard(m.recentEvents, colors, cardW)
 	return lipgloss.JoinVertical(lipgloss.Top,

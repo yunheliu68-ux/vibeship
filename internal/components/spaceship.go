@@ -10,25 +10,29 @@ import (
 	"github.com/francis/vibeship/internal/theme"
 )
 
-func renderSpaceship(snap store.Snapshot, tick int, colors theme.Colors, w, h int) string {
-	if w < 1 || h < 1 {
+func renderSpaceship(snap store.Snapshot, rate int64, tick int, colors theme.Colors, w, h int) string {
+	if w < 20 || h < 10 {
 		return "Terminal too small"
 	}
 
 	// Particle field (stars) in background
-	particles := renderParticles(tick, w, h, snap)
+	particles := renderParticles(rate, tick, w, h)
 
 	// Speedometer gauge in center
-	gauge := renderGauge(snap, colors)
+	gauge := renderGauge(rate, snap, colors)
 
 	// Warp speed line at bottom
-	warpLine := renderWarpLine(snap, tick, w, colors)
+	warpLine := renderWarpLine(rate, tick, w, colors)
 
 	// Compose: particles as background, gauge centered, warp line at bottom
-	gaugeW := lipgloss.Width(gauge)
-	gaugeH := lipgloss.Height(gauge)
-	centerX := (w - gaugeW) / 2
-	centerY := (h - gaugeH) / 2
+	centerY := (h - lipgloss.Height(gauge)) / 2
+	centerX := (w - lipgloss.Width(gauge)) / 2
+	if centerY < 0 {
+		centerY = 0
+	}
+	if centerX < 0 {
+		centerX = 0
+	}
 
 	result := particles
 	result = placeString(result, gauge, centerX, centerY)
@@ -37,35 +41,25 @@ func renderSpaceship(snap store.Snapshot, tick int, colors theme.Colors, w, h in
 	return result
 }
 
-func renderParticles(tick int, w int, h int, snap store.Snapshot) string {
-	// Guard against panics on very small terminals
-	if w < 1 || h < 1 {
-		return ""
-	}
-
-	// Generate pseudo-random star positions based on tick.
-	// Density scales with output token count.
+func renderParticles(rate int64, tick int, w, h int) string {
 	density := 10 // base stars
-	if snap.OutputTokens > 0 {
-		density = int(math.Min(float64(snap.OutputTokens/2), 80))
+	if rate > 0 {
+		density = int(math.Min(float64(rate/2), 80))
 		if density < 10 {
 			density = 10
 		}
 	}
 
-	// Create a grid of spaces.
 	grid := make([][]rune, h)
 	for y := range grid {
 		grid[y] = []rune(strings.Repeat(" ", w))
 	}
 
-	// Place stars using a simple LCG seeded by tick and position.
 	for i := 0; i < density; i++ {
 		seed := (tick + i*7) % 1000
 		x := (seed * 13) % w
 		y := (seed * 17) % h
 
-		// Star brightness cycles with tick.
 		brightness := (tick + i) % 3
 		var star rune
 		switch brightness {
@@ -88,15 +82,12 @@ func renderParticles(tick int, w int, h int, snap store.Snapshot) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderGauge(snap store.Snapshot, colors theme.Colors) string {
-	// Simple speedometer: a dial with rate value in the center.
-	rate := snap.OutputTokens
+func renderGauge(rate int64, snap store.Snapshot, colors theme.Colors) string {
 	rateStr := fmt.Sprintf("%d t/s", rate)
 	if rate == 0 {
 		rateStr = "— t/s"
 	}
 
-	// Determine gauge colour based on five-hour budget usage.
 	gaugeColor := colors.Primary
 	if snap.FiveHourUsedPct > 80 {
 		gaugeColor = colors.Danger
@@ -107,10 +98,8 @@ func renderGauge(snap store.Snapshot, colors theme.Colors) string {
 	top := "╭─────────────────────╮"
 	bottom := "╰─────────────────────╯"
 	pointer := "│        ╱╲            │"
+	rateLine := fmt.Sprintf("│  %s  │", lipgloss.NewStyle().Foreground(gaugeColor).Bold(true).Render(centerStr(rateStr, 19)))
 	pointer2 := "│       ╲╱           │"
-	rateLine := fmt.Sprintf("│  %s  │",
-		lipgloss.NewStyle().Foreground(gaugeColor).Bold(true).Render(centerStr(rateStr, 17)),
-	)
 
 	return lipgloss.NewStyle().Foreground(gaugeColor).Render(
 		lipgloss.JoinVertical(lipgloss.Center,
@@ -123,16 +112,14 @@ func renderGauge(snap store.Snapshot, colors theme.Colors) string {
 	)
 }
 
-func renderWarpLine(snap store.Snapshot, tick int, w int, colors theme.Colors) string {
+func renderWarpLine(rate int64, tick int, w int, colors theme.Colors) string {
 	if w < 1 {
 		return ""
 	}
-
-	// Horizontal line of dashes scrolling left. Speed is proportional to token rate.
 	speed := 1
-	if snap.OutputTokens > 100 {
+	if rate > 100 {
 		speed = 3
-	} else if snap.OutputTokens > 50 {
+	} else if rate > 50 {
 		speed = 2
 	}
 

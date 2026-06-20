@@ -13,7 +13,7 @@ import (
 // renderDJ composes the DJ visualizer: top spectrum (input tokens),
 // breathing halo with rate number in the center, and bottom spectrum
 // (output tokens).
-func renderDJ(snap store.Snapshot, tick int, colors theme.Colors, w, h int) string {
+func renderDJ(snap store.Snapshot, rate int64, tick int, colors theme.Colors, w, h int) string {
 	if w < 1 || h < 1 {
 		return "Terminal too small"
 	}
