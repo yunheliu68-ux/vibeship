@@ -275,7 +275,7 @@ func (m *Model) renderTopBar(colors theme.Colors) string {
 }
 
 func (m *Model) renderAnimation(colors theme.Colors, w, h int) string {
-	return lipgloss.NewStyle().Width(w).Height(h).Render("animation area")
+	return components.RenderAnimation(m.theme, m.latestSnap, m.tick, colors, w, h)
 }
 
 func (m *Model) renderInfoPanel(colors theme.Colors, w, h int) string {
