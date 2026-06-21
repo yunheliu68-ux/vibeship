@@ -2,7 +2,6 @@ package components
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -14,17 +13,14 @@ func renderSpaceship(snap store.Snapshot, rate int64, tick int, colors theme.Col
 	if w < 20 || h < 10 {
 		return "Terminal too small"
 	}
+	_ = rate // output token delta is not a valid rate source — drive by context usage instead
 
-	// Particle field (stars) in background
-	particles := renderParticles(rate, tick, w, h)
+	pct := snap.ContextUsedPct // 0..100, real and grows with session
 
-	// Speedometer gauge in center
-	gauge := renderGauge(rate, snap, colors)
+	particles := renderParticles(pct, tick, w, h)
+	gauge := renderGauge(snap, colors)
+	warpLine := renderWarpLine(pct, tick, w, colors)
 
-	// Warp speed line at bottom
-	warpLine := renderWarpLine(rate, tick, w, colors)
-
-	// Compose: particles as background, gauge centered, warp line at bottom
 	centerY := (h - lipgloss.Height(gauge)) / 2
 	centerX := (w - lipgloss.Width(gauge)) / 2
 	if centerY < 0 {
@@ -33,33 +29,25 @@ func renderSpaceship(snap store.Snapshot, rate int64, tick int, colors theme.Col
 	if centerX < 0 {
 		centerX = 0
 	}
-
 	result := particles
 	result = placeString(result, gauge, centerX, centerY)
 	result = placeString(result, warpLine, 0, h-1)
-
 	return result
 }
 
-func renderParticles(rate int64, tick int, w, h int) string {
-	density := 10 // base stars
-	if rate > 0 {
-		density = int(math.Min(float64(rate/2), 80))
-		if density < 10 {
-			density = 10
-		}
+func renderParticles(pct float64, tick int, w, h int) string {
+	density := 10 + int(pct*0.7) // 10..~80, denser as context fills
+	if density > 80 {
+		density = 80
 	}
-
 	grid := make([][]rune, h)
 	for y := range grid {
 		grid[y] = []rune(strings.Repeat(" ", w))
 	}
-
 	for i := 0; i < density; i++ {
 		seed := (tick + i*7) % 1000
 		x := (seed * 13) % w
 		y := (seed * 17) % h
-
 		brightness := (tick + i) % 3
 		var star rune
 		switch brightness {
@@ -74,7 +62,6 @@ func renderParticles(rate int64, tick int, w, h int) string {
 			grid[y][x] = star
 		}
 	}
-
 	var lines []string
 	for _, row := range grid {
 		lines = append(lines, string(row))
@@ -82,47 +69,37 @@ func renderParticles(rate int64, tick int, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderGauge(rate int64, snap store.Snapshot, colors theme.Colors) string {
-	rateStr := fmt.Sprintf("%d t/s", rate)
-	if rate == 0 {
-		rateStr = "— t/s"
-	}
+func renderGauge(snap store.Snapshot, colors theme.Colors) string {
+	valStr := fmt.Sprintf("%.0f%% ctx", snap.ContextUsedPct)
 
 	gaugeColor := colors.Primary
-	if snap.FiveHourUsedPct > 80 {
+	if snap.ContextUsedPct > 85 || snap.FiveHourUsedPct > 80 {
 		gaugeColor = colors.Danger
-	} else if snap.FiveHourUsedPct > 50 {
+	} else if snap.ContextUsedPct > 60 || snap.FiveHourUsedPct > 50 {
 		gaugeColor = colors.Warning
 	}
 
 	top := "╭─────────────────────╮"
 	bottom := "╰─────────────────────╯"
 	pointer := "│        ╱╲            │"
-	rateLine := fmt.Sprintf("│  %s  │", lipgloss.NewStyle().Foreground(gaugeColor).Bold(true).Render(centerStr(rateStr, 19)))
+	rateLine := fmt.Sprintf("│  %s  │", lipgloss.NewStyle().Foreground(gaugeColor).Bold(true).Render(centerStr(valStr, 19)))
 	pointer2 := "│       ╲╱           │"
 
 	return lipgloss.NewStyle().Foreground(gaugeColor).Render(
-		lipgloss.JoinVertical(lipgloss.Center,
-			top,
-			pointer,
-			rateLine,
-			pointer2,
-			bottom,
-		),
+		lipgloss.JoinVertical(lipgloss.Center, top, pointer, rateLine, pointer2, bottom),
 	)
 }
 
-func renderWarpLine(rate int64, tick int, w int, colors theme.Colors) string {
+func renderWarpLine(pct float64, tick int, w int, colors theme.Colors) string {
 	if w < 1 {
 		return ""
 	}
 	speed := 1
-	if rate > 100 {
+	if pct > 60 {
 		speed = 3
-	} else if rate > 50 {
+	} else if pct > 30 {
 		speed = 2
 	}
-
 	offset := (tick * speed) % 8
 	var chars []rune
 	for i := 0; i < w; i++ {
