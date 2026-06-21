@@ -128,7 +128,7 @@ func processFile(path, projPath string, st *store.Store, lastPositions map[strin
 		f.Seek(lastPos, 0)
 	}
 
-scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 256*1024), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -264,4 +264,11 @@ func extractEvents(rec transcriptRecord, sessionFile string) []store.TranscriptE
 }
 
 func str(v interface{}) string { s, _ := v.(string); return s }
-func firstNonEmpty(ss ...string) string { for _, s := range ss { if s != "" { return s } }; return "" }
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}

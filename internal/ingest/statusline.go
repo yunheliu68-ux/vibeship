@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/francis/vibeship/internal/store"
@@ -42,17 +43,17 @@ type StatuslinePayload struct {
 }
 
 // IngestStatusline reads newline-delimited JSON statusline payloads from r,
-// echos each to stdout, and inserts a store.Snapshot into the database.
+// stores each as a Snapshot in the database, and outputs a compact
+// human-readable status line to stdout for Claude Code's prompt bar.
 func IngestStatusline(r io.Reader, st *store.Store) error {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
-		// Echo to stdout (transparent pipe)
-		fmt.Println(string(line))
-
 		var payload StatuslinePayload
 		if err := json.Unmarshal(line, &payload); err != nil {
+			// Parse failed: echo original so statusline doesn't go blank
+			fmt.Println(string(line))
 			fmt.Fprintf(os.Stderr, "vibeship: failed to parse statusline JSON: %v\n", err)
 			continue
 		}
@@ -76,12 +77,32 @@ func IngestStatusline(r io.Reader, st *store.Store) error {
 			SevenDayUsedPct:   payload.RateLimits.SevenDay.UsedPercentage,
 			SevenDayResetsAt:  isoTime(payload.RateLimits.SevenDay.ResetsAt),
 		}
-
 		if err := st.InsertSnapshot(snap); err != nil {
 			fmt.Fprintf(os.Stderr, "vibeship: failed to store snapshot: %v\n", err)
 		}
+
+		// Output a clean status line instead of raw JSON
+		fmt.Println(formatStatusLine(payload))
 	}
 	return scanner.Err()
+}
+
+// formatStatusLine builds a compact status line from a statusline payload
+// so that vibeship collect can serve as the statusLine command without
+// dumping raw JSON onto the prompt bar.
+func formatStatusLine(p StatuslinePayload) string {
+	parts := make([]string, 0, 4)
+	if p.Model.DisplayName != "" {
+		parts = append(parts, p.Model.DisplayName)
+	}
+	if p.Cost.TotalCostUSD > 0 {
+		parts = append(parts, fmt.Sprintf("$%.2f", p.Cost.TotalCostUSD))
+	}
+	parts = append(parts, fmt.Sprintf("ctx %.0f%%", p.ContextWindow.UsedPercentage))
+	if p.RateLimits.FiveHour.UsedPercentage > 0 {
+		parts = append(parts, fmt.Sprintf("5h %.0f%%", p.RateLimits.FiveHour.UsedPercentage))
+	}
+	return "🚀 " + strings.Join(parts, " · ")
 }
 
 func isoTime(u int64) string {

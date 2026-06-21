@@ -80,7 +80,7 @@ func RenderActivityCard(events []store.TranscriptEvent, recommendation string, c
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(width - 2).
+		Width(width-2).
 		Padding(0, 1)
 
 	if recommendation != "" {

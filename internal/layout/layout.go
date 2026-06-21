@@ -32,7 +32,7 @@ func Card(title string, content string, width int, active bool) string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Width(width - 2).
+		Width(width-2).
 		Padding(0, 1)
 	return style.Render(lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Bold(true).Render(title),

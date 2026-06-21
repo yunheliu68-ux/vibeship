@@ -29,7 +29,7 @@ func RenderHelp(colors theme.Colors, w, h int) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colors.Primary).
-		Width(w - 4).
+		Width(w-4).
 		Padding(1, 2).
 		Render(content)
 }

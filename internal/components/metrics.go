@@ -42,7 +42,7 @@ func RenderMetricsCard(snap store.Snapshot, colors theme.Colors, width int) stri
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(width - 2).
+		Width(width-2).
 		Padding(0, 1)
 
 	return style.Render(content)

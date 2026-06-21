@@ -42,7 +42,7 @@ func RenderAgentsCard(events []store.TranscriptEvent, colors theme.Colors, width
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(width - 2).
+		Width(width-2).
 		Padding(0, 1)
 
 	return style.Render(

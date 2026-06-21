@@ -13,8 +13,8 @@ import (
 	"github.com/francis/vibeship/internal/components"
 	"github.com/francis/vibeship/internal/config"
 	"github.com/francis/vibeship/internal/ingest"
-	"github.com/francis/vibeship/internal/rules"
 	"github.com/francis/vibeship/internal/layout"
+	"github.com/francis/vibeship/internal/rules"
 	"github.com/francis/vibeship/internal/store"
 	"github.com/francis/vibeship/internal/theme"
 )

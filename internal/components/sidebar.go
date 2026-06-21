@@ -63,7 +63,7 @@ func RenderSidebar(reg *config.Registry, events []store.TranscriptEvent, colors 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#444444")).
-		Width(w - 2).
+		Width(w-2).
 		Height(h).
 		Padding(0, 1)
 
